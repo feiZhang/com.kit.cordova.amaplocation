@@ -6,6 +6,11 @@ import android.content.pm.PackageManager;
 import android.util.Log;
 import android.widget.Toast;
 
+import android.annotation.SuppressLint;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+
 import com.amap.api.location.AMapLocation;
 import com.amap.api.location.AMapLocationClient;
 import com.amap.api.location.AMapLocationClientOption;
@@ -35,12 +40,34 @@ public class LocationPlugin extends CordovaPlugin {
     private AMapLocationClientOption locationOption = null;
     private Context context;
     private CallbackContext callbackContext = null;
+    // 猎鹰，因为轨迹ID
+    private AMapTrackClient aMapTrackClient = null;
+    long serviceId = args;
+    long terminalId = args;
+    long trackId = null;
+    boolean weekEndRun = false; //是否在周末进行定位
+    long startTime = 800;   //开始时间，08:00
+    long endTime = 1800;    //结束时间, 18:00
+
+    Timer timer = null;
+    TimerTask timerTask = null;
 
     @Override
     public void initialize(CordovaInterface cordova, CordovaWebView webView) {
         context = this.cordova.getActivity().getApplicationContext();
         locationClient = new AMapLocationClient(context);
         locationClient.setLocationListener(mLocationListener);
+
+        // aMapTrackClient = new AMapTrackClient(content);
+
+        // timer = new Timer(true);
+        // timerTask = new TimerTask() {
+        //     public void run() {
+        //         //每次需要执行的代码放到这里面。
+        //         checkStartTrack();
+        //     }
+        // };
+        // timer.schedule(timerTask, 1, 60*1000);
         super.initialize(cordova, webView);
     }
 
@@ -52,34 +79,127 @@ public class LocationPlugin extends CordovaPlugin {
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
         this.callbackContext = callbackContext;
+        boolean enableBackgroundLocation = args.getBoolean(0);
         if ("getlocation".equals(action.toLowerCase(Locale.CHINA))) {
             if (context.getApplicationInfo().targetSdkVersion < 23) {
-                this.getLocation();
+                this.getLocation(enableBackgroundLocation);
             } else {
                 boolean access_fine_location = PermissionHelper.hasPermission(this, Manifest.permission.ACCESS_FINE_LOCATION);
                 boolean access_coarse_location = PermissionHelper.hasPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION);
                 if (access_fine_location && access_coarse_location) {
-                    this.getLocation();
+                    this.getLocation(enableBackgroundLocation);
                 } else {
                     PermissionHelper.requestPermissions(this, ACCESS_LOCATION, permissions);
                 }
             }
             return true;
+        } else if ("startTrack".equals(action.toLowerCase(Locale.CHINA))) {
+            // aMapTrackClient.addTrack(new AddTrackRequest(serviceId, terminalId), new OnTrackListener() {
+            //     @Override
+            //     public void onAddTrackCallback(AddTrackResponse addTrackResponse) {
+            //         if (addTrackResponse.isSuccess()) {
+            //             trackId = addTrackResponse.getTrid();
+            //         } else {
+            //             Log.e("网络请求失败，" + addTrackResponse.getErrorMsg());
+            //             callbackContext.error(addTrackResponse.getErrorMsg());
+            //         }
+            //     }
+            // }
         }
         return false;
     }
+    private void checkStartTrack() {
 
-    private void getLocation() {
+    }
+    private void startTrack() {
+        if(serviceId && terminalId && trackId) {
+            try {
+                TrackParam trackParam = new TrackParam(serviceId, terminalId);
+                trackParam.setTrackId(trackId);
+                aMapTrackClient.setInterval(60, 300);
+                aMapTrackClient.startTrack(trackParam, onTrackLifecycleListener);
+
+                JSONObject jo = new JSONObject();
+                jo.put("success", true);
+                jo.put("message", '开启实时定位');
+                callbackContext.success(jo);
+            } catch (JSONException e) {
+                Log.e("定位开启失败!",e);
+                callbackContext.error("定位开启失败!");
+            }
+        } else {
+            Log.e("定位参数不全!",serviceId,terminalId,trackId);
+            callbackContext.error('定位参数不全!');
+        }
+    }
+
+    private void getLocation(boolean enableBackgroundLocation) {
         locationOption = new AMapLocationClientOption();
         locationOption.setLocationPurpose(AMapLocationClientOption.AMapLocationPurpose.SignIn);// 使用签到定位场景
         locationClient.setLocationOption(locationOption); // 设置定位参数
         // 设置场景模式后最好调用一次stop，再调用start以保证场景模式生效
         locationClient.stopLocation();
         locationClient.startLocation(); // 启动定位
+        if(enableBackgroundLocation) {
+            locationClient.enableBackgroundLocation(2001, buildNotification());
+        }
         PluginResult r = new PluginResult(PluginResult.Status.NO_RESULT);
         r.setKeepCallback(true);
         callbackContext.sendPluginResult(r);
     }
+
+    private static final String NOTIFICATION_CHANNEL_NAME = "BackgroundLocation";
+	private NotificationManager notificationManager = null;
+	boolean isCreateChannel = false;
+	@SuppressLint("NewApi")
+	private Notification buildNotification() {
+
+		Notification.Builder builder = null;
+		Notification notification = null;
+		if(android.os.Build.VERSION.SDK_INT >= 26) {
+			//Android O上对Notification进行了修改，如果设置的targetSDKVersion>=26建议使用此种方式创建通知栏
+			if (null == notificationManager) {
+				notificationManager = (NotificationManager) this.cordova.getActivity().getSystemService(Context.NOTIFICATION_SERVICE);
+			}
+			String channelId = this.cordova.getActivity().getPackageName();
+			if(!isCreateChannel) {
+				NotificationChannel notificationChannel = new NotificationChannel(channelId,
+						NOTIFICATION_CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT);
+				notificationChannel.enableLights(true);//是否在桌面icon右上角展示小圆点
+				notificationChannel.setLightColor(Color.BLUE); //小圆点颜色
+				notificationChannel.setShowBadge(true); //是否在久按桌面图标时显示此渠道的通知
+				notificationManager.createNotificationChannel(notificationChannel);
+				isCreateChannel = true;
+			}
+			builder = new Notification.Builder(this.cordova.getActivity().getApplicationContext(), channelId);
+		} else {
+			builder = new Notification.Builder(this.cordova.getActivity().getApplicationContext());
+		}
+		builder.setSmallIcon(R.drawable.ic_launcher)
+				.setContentTitle(getAppName(this.cordova.getActivity().getApplicationContext()))
+				.setContentText("正在后台运行")
+				.setWhen(System.currentTimeMillis());
+
+		if (android.os.Build.VERSION.SDK_INT >= 16) {
+			notification = builder.build();
+		} else {
+			return builder.getNotification();
+		}
+		return notification;
+    }
+    private String getAppName(Context context) {
+		String appName = "";
+		try {
+			PackageManager packageManager = context.getPackageManager();
+			PackageInfo packageInfo = packageManager.getPackageInfo(
+					context.getPackageName(), 0);
+			int labelRes = packageInfo.applicationInfo.labelRes;
+			appName =  context.getResources().getString(labelRes);
+		} catch (Throwable e) {
+			e.printStackTrace();
+		}
+		return appName;
+	}
 
     @Override
     public void onRequestPermissionResult(int requestCode, String[] permissions, int[] grantResults) throws JSONException {
@@ -151,4 +271,28 @@ public class LocationPlugin extends CordovaPlugin {
         }
     };
 
+    // 猎鹰监听器
+    private OnTrackLifecycleListener onTrackLifecycleListener = new OnTrackLifecycleListener() {
+        @Override
+        public void onStartGatherCallback(int status, String msg) {
+            if (status == ErrorCode.TrackListen.START_GATHER_SUCEE ||
+                    status == ErrorCode.TrackListen.START_GATHER_ALREADY_STARTED) {
+                Toast.makeText(TestDemo.this, "定位采集开启成功！", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(TestDemo.this, "定位采集启动异常，" + msg, Toast.LENGTH_SHORT).show();
+            }
+        }
+
+        @Override
+        public void onStartTrackCallback(int status, String msg) {
+            if (status == ErrorCode.TrackListen.START_TRACK_SUCEE ||
+                    status == ErrorCode.TrackListen.START_TRACK_SUCEE_NO_NETWORK ||
+                    status == ErrorCode.TrackListen.START_TRACK_ALREADY_STARTED) {
+                // 服务启动成功，继续开启收集上报
+                aMapTrackClient.startGather(this);
+            } else {
+                Toast.makeText(TestDemo.this, "轨迹上报服务服务启动异常，" + msg, Toast.LENGTH_SHORT).show();
+            }
+        }
+    };
 }
