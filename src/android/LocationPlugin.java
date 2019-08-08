@@ -107,19 +107,20 @@ public class LocationPlugin extends CordovaPlugin {
     public boolean execute(String action, JSONArray args, CallbackContext callbackContext) throws JSONException {
         if ("getlocation".equals(action.toLowerCase(Locale.CHINA)) || "watchlocation".equals(action.toLowerCase(Locale.CHINA))) {
             int timeout = 0;
-            if("watchlocation".equals(action.toLowerCase(Locale.CHINA))){
+            if ("watchlocation".equals(action.toLowerCase(Locale.CHINA))) {
                 timeout = args.getInt(0);
                 this.callbackContextWatch = callbackContext;
             } else {
                 this.callbackContext = callbackContext;
             }
-            Log.d("dingweigetlocation",String.valueOf(timeout));
+            Log.d("dingweigetlocation",String.valueOf(timeout) + "-" + String.valueOf(context.getApplicationInfo().targetSdkVersion));
             if (context.getApplicationInfo().targetSdkVersion < 23) {
                 this.getLocation(timeout);
             } else {
                 boolean access_fine_location = PermissionHelper.hasPermission(this, Manifest.permission.ACCESS_FINE_LOCATION);
                 boolean access_coarse_location = PermissionHelper.hasPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION);
                 boolean access_backgroup_location = true;// PermissionHelper.hasPermission(this,Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+                Log.d("dingweiPermiss",String.valueOf(access_fine_location) + "-" + String.valueOf(access_coarse_location) + "-" + String.valueOf(access_backgroup_location));
                 if (access_fine_location && access_coarse_location && access_backgroup_location) {
                     this.getLocation(timeout);
                 } else {
@@ -171,12 +172,15 @@ public class LocationPlugin extends CordovaPlugin {
         // 设置场景模式后最好调用一次stop，再调用start以保证场景模式生效
         PluginResult r = new PluginResult(PluginResult.Status.NO_RESULT);
         r.setKeepCallback(true);
+        Log.d("dingweiReset",
+                String.valueOf(timeout) + "-" + String.valueOf(timeout > 0) + "-" + String.valueOf(timeout < 0));
         if (timeout > 0) {
             locationOptionWatch.setInterval(timeout);//可选，设置定位间隔。默认为2秒
             locationClientWatch.setLocationOption(locationOptionWatch); // 设置定位参数
             if(locationClientWatch.isStarted()) locationClientWatch.stopLocation();
             locationClientWatch.startLocation(); // 启动定位
             callbackContextWatch.sendPluginResult(r);
+            Log.d("dingweiOpt", locationOptionWatch.toString());
         } else if (timeout < 0) {
             if(locationClientWatch.isStarted()) locationClientWatch.stopLocation();
             String msg = "关闭后台定位";
@@ -254,7 +258,7 @@ public class LocationPlugin extends CordovaPlugin {
         switch (requestCode) {
         case ACCESS_LOCATION:
             if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                this.getLocation(60);
+                this.getLocation(60000);
             } else {
                 Toast.makeText(this.cordova.getActivity(), "请开启应用定位权限", Toast.LENGTH_SHORT).show();
             }
@@ -306,16 +310,18 @@ public class LocationPlugin extends CordovaPlugin {
                             jo.put("floor", floor);
                             jo.put("gpsAccuracyStatus", gpsAccuracyStatus);
                             jo.put("time", time);
+                            jo.put("shuju", amapLocation.toStr(1));
                         } catch (JSONException e) {
                             jo = null;
                             e.printStackTrace();
                         }
-                        Log.d(address, "dingwei");
                         if ("watch".equals(type)) {
+                            Log.d(address, "dingwei" + type);
                             PluginResult r = new PluginResult(PluginResult.Status.OK, jo);
                             r.setKeepCallback(true);
                             callbackContextWatch.sendPluginResult(r);
                         } else {
+                            Log.d(address, "dingwei" + type);
                             callbackContext.success(jo);
                         }
                     } else {
